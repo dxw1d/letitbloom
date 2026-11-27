@@ -22,7 +22,8 @@ ATLAS_FILE = Path(__file__).with_name("flower_frames.bin")
 HEADER_FORMAT = "<8sHHHHI"
 HEADER_SIZE = struct.calcsize(HEADER_FORMAT)
 EXPECTED_MAGIC = b"FLWASCII"
-TEXT_PATTERN = "let it bloom"
+TEXT_PATTERN = "LET IT BLOOM"
+TINT_COLOR: Optional[tuple[int, int, int]] = None
 FPS_FALLBACK = 30
 
 
@@ -104,12 +105,31 @@ def choose_glyph(red: int, green: int, blue: int, x: int, y: int) -> str:
 
 
 def make_color(red: int, green: int, blue: int) -> tuple[int, int, int]:
-    """Lift the photographed screen slightly without flattening its pink shadows."""
+    """Apply an optional monochrome tint, otherwise preserve source colors."""
+    if TINT_COLOR is not None:
+        luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue
+        strength = 0.20 + (luminance / 255.0) * 0.95
+        return tuple(clamp_byte(channel * strength) for channel in TINT_COLOR)
     return (
         clamp_byte(red * 1.34),
         clamp_byte(green * 1.30),
         clamp_byte(blue * 1.34),
     )
+
+
+def parse_hex_color(value: str) -> Optional[tuple[int, int, int]]:
+    """Parse #RRGGBB; return None for an empty value."""
+    value = value.strip()
+    if not value:
+        return None
+    if value.startswith("#"):
+        value = value[1:]
+    if len(value) != 6:
+        raise ValueError("Use a six-digit hex color, for example #FF55B8.")
+    try:
+        return tuple(int(value[index:index + 2], 16) for index in (0, 2, 4))
+    except ValueError as exc:
+        raise ValueError("The color must contain only hex digits (0-9, A-F).") from exc
 
 
 def render_frame(
@@ -211,11 +231,16 @@ def main() -> int:
     enable_windows_ansi()
     try:
         print("ASCII Flower customizer")
-        phrase = input("Your text (used as ASCII characters, Enter = default): ").strip()
+        phrase = input("ASCII text pattern (replaces LET IT BLOOM, Enter = default): ").strip()
         if phrase:
             TEXT_PATTERN = "".join(phrase.split())[:64] or TEXT_PATTERN
+        color_value = input("Tint color #RRGGBB (Enter = original flower colors): ").strip()
+        TINT_COLOR = parse_hex_color(color_value)
     except (EOFError, KeyboardInterrupt):
         pass
+    except ValueError as error:
+        print(f"Invalid color: {error}. Keeping original flower colors.")
+        TINT_COLOR = None
     frame_size = width * height * 3
     frame_duration = 1.0 / fps
     terminal_size = shutil.get_terminal_size((110, 42))
